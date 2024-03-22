@@ -138,7 +138,7 @@ class RaftNode:
 		return response
 
 	def AppendEntries(self, request, context):
-		print("AppendEntries called")
+		print(f"AppendEntries called {self.node_id}")
 		self.start_election_timer()
 		response = raft_pb2.AppendEntriesResponse()
 		if request.term > self.current_term:
@@ -173,7 +173,36 @@ class RaftNode:
 			return
 		print(response)
 
+	def get_value_from_database(self, key):
+		# get value from database
+		return "value"
 
+	def set_value_to_database(self, key, value):
+		# set value to database
+		pass
+
+	def ServeClient(self, request, context):
+			print(f"ServeClient called {self.node_id}")
+			# response = raft_pb2.ServeClientResponse()
+		
+			operation = request.Request.strip().split()
+
+			# check if the node is the leader
+			if self.node_type != NodeType.LEADER:
+					return raft_pb2.ServeClientResponse(Data="INCORRECT Leader", LeaderID=str(self.node_id), Success=False)
+
+			if operation[0] == "GET":
+					key = operation[1]
+					# NOTE: Harshit implement this
+					value = self.get_value_from_database(key)
+					return raft_pb2.ServeClientResponse(Data=value, LeaderID=str(self.node_id), Success=True)
+			elif operation[0] == "SET":
+					key, value = operation[1], operation[2]
+					# NOTE: Harshit implement this
+					self.set_value_to_database(key, value)
+					return raft_pb2.ServeClientResponse(Data="SET operation successful", LeaderID=str(self.node_id), Success=True)
+			else:
+					return raft_pb2.ServeClientResponse(Data="INVALID operation", LeaderID=str(self.node_id), Success=False)
 
 	def __str__(self):
 		return f"Node ID: {self.node_id}, Node IP: {self.node_ip}, Node Port: {self.node_port}, Node Type: {self.node_type}"
