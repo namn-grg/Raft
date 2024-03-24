@@ -1,4 +1,5 @@
 import threading
+import time
 import grpc
 from grpc import StatusCode
 from concurrent import futures
@@ -22,7 +23,7 @@ class RaftNode:
 		self.network = {} # dict of conn with peers in same cluster
 		self.node_type = node_type
 		# election
-		self.election_timeout = 2
+		self.election_timeout = 2 # randomize this (5-10 seconds)
 		self.election_timer = None
 		self.current_term = 0
 		self.last_voted_term = None
@@ -37,12 +38,33 @@ class RaftNode:
 		self.add_peer("127.0.0.1", 50052)
 		self.add_peer("127.0.0.1", 50053)
 		# self.add_peer("127.0.0.1", 50052)
+		# leader lease
+		self.leader_lease_timeout = 5 # fix this between (2-10 seconds), simple if less than 5 seconds
+		self.leader_lease = None
 
 	def add_peer(self, peer_ip:str, peer_port:int):
 		# establish a grpc channel with the peer and add it to the network
 		channel = grpc.insecure_channel(f"{peer_ip}:{peer_port}")
 		self.network[(peer_ip, peer_port)] = channel
 		print("peer added success")
+  
+	def start_leader_lease_timer(self):
+		# responsible for starting the leader lease timer
+		if self.leader_lease:
+			self.leader_lease.cancel()
+
+		self.leader_lease = threading.Timer(self.election_timeout, self.start_election)
+		self.leader_lease.endTime = time.time() + self.election_timeout
+		self.leader_lease.start()
+  
+	def get_lease_duration(self):
+		# return the remaining time for the leader lease to expire
+		if self.leader_lease and self.leader_lease.is_alive():
+			remaining_time = self.leader_lease.endTime - time.time()
+			print("Remaining time:", remaining_time)
+			if remaining_time > 0:
+				return remaining_time
+		return 0
 
 	def start_election_timer(self):
 		# responsible for starting the timer for each node
@@ -52,7 +74,7 @@ class RaftNode:
 		# generate a random election timeout
 		self.election_timer = threading.Timer(self.election_timeout, self.start_election)
 		self.election_timer.start()
-	
+
 	def start_heartbeat_timer(self):
 		# responsible for starting the timer for each node
 		if self.heartbeat_timer:
@@ -61,7 +83,7 @@ class RaftNode:
 		# generate a random election timeout
 		self.heartbeat_timer = threading.Timer(self.heartbeat_timeout, self.send_heartbeat)
 		self.heartbeat_timer.start()
-	
+
 	def send_heartbeat(self):
 		# send heartbeat to all peers
 		# TODO: Harshit look at this
@@ -72,6 +94,8 @@ class RaftNode:
 		self.start_heartbeat_timer()
 
 	def start_election(self):
+		# if self.get_lease_duration() > 0:
+		# 	return
 		self.vote_count = 0
 		if self.node_type == NodeType.LEADER:
 			self.start_election_timer()
@@ -90,7 +114,7 @@ class RaftNode:
 			self.node_type = NodeType.LEADER
 			self.start_heartbeat_timer()
 			self.send_heartbeat()
-
+			# self.start_leader_lease_timer()
 		self.start_election_timer()
 
 	def send_request_vote(self, peer:tuple):
@@ -106,6 +130,7 @@ class RaftNode:
 		except grpc.RpcError as e:
 			return
 		if (response.voteGranted):
+		# if (response.voteGranted) and response.leaseDuration == 0:
 			self.vote_count += 1
 		if response.term > self.current_term:
 			self.current_term = response.term
@@ -133,6 +158,8 @@ class RaftNode:
 			response.term = self.current_term
 		if request.term > self.current_term:
 			self.current_term = request.term
+		response.leaseDuration = self.get_lease_duration()
+		# self.start_leader_lease_timer()
 		self.start_election_timer()
 		print(response)
 		return response
@@ -156,6 +183,7 @@ class RaftNode:
 			self.start_election_timer()
 			response.success = True
 			response.term = self.current_term
+		self.start_leader_lease_timer()
 		print(response)
 		return response
 
@@ -179,29 +207,30 @@ class RaftNode:
 	def set_value_to_database(self, key, value):
 		# set value to database
 		pass
-   
-	def ServeClient(self, request, context):
-			print(f"ServeClient called {self.node_id}")
-			# response = raft_pb2.ServeClientResponse()
 		
-			operation = request.Request.strip().split()
+	def ServeClient(self, request, context):
+		print(f"ServeClient called {self.node_id}")
+		# response = raft_pb2.ServeClientResponse()
 
-			# check if the node is the leader
-			if self.node_type != NodeType.LEADER:
-					return raft_pb2.ServeClientResponse(Data="INCORRECT Leader", LeaderID=str(self.node_id), Success=False)
+		operation = request.Request.strip().split()
 
-			if operation[0] == "GET":
-					key = operation[1]
-					# NOTE: Harshit implement this
-					value = self.get_value_from_database(key)
-					return raft_pb2.ServeClientResponse(Data=value, LeaderID=str(self.node_id), Success=True)
-			elif operation[0] == "SET":
-					key, value = operation[1], operation[2]
-					# NOTE: Harshit implement this
-					self.set_value_to_database(key, value)
-					return raft_pb2.ServeClientResponse(Data="SET operation successful", LeaderID=str(self.node_id), Success=True)
-			else:
-					return raft_pb2.ServeClientResponse(Data="INVALID operation", LeaderID=str(self.node_id), Success=False)
+		# check if the node is the leader
+		if self.node_type != NodeType.LEADER:
+			return raft_pb2.ServeClientResponse(Data="INCORRECT Leader", LeaderID=str(self.node_id), Success=False)
+
+		if operation[0] == "GET":
+			key = operation[1]
+			# NOTE: Harshit implement this
+			# Since we have leader lease, we can directly get the value from the database
+			value = self.get_value_from_database(key)
+			return raft_pb2.ServeClientResponse(Data=value, LeaderID=str(self.node_id), Success=True)
+		elif operation[0] == "SET":
+			key, value = operation[1], operation[2]
+			# NOTE: Harshit implement this
+			self.set_value_to_database(key, value)
+			return raft_pb2.ServeClientResponse(Data="SET operation successful", LeaderID=str(self.node_id), Success=True)
+		else:
+			return raft_pb2.ServeClientResponse(Data="INVALID operation", LeaderID=str(self.node_id), Success=False)
 
 	def __str__(self):
 		return f"Node ID: {self.node_id}, Node IP: {self.node_ip}, Node Port: {self.node_port}, Node Type: {self.node_type}"
