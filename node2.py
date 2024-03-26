@@ -39,7 +39,7 @@ class RaftNode:
 		self.add_peer("127.0.0.1", 50051)
 		# self.add_peer("127.0.0.1", 50052)
 		# leader lease
-		self.leader_lease_timeout = 5 # fix this between (2-10 seconds), simple if less than 5 seconds
+		self.leader_lease_timeout = 4 # fix this between (2-10 seconds), simple if less than 5 seconds
 		self.leader_lease = None
 
 	def add_peer(self, peer_ip:str, peer_port:int):
@@ -53,8 +53,8 @@ class RaftNode:
 		if self.leader_lease:
 			self.leader_lease.cancel()
 
-		self.leader_lease = threading.Timer(self.election_timeout, self.start_election)
-		self.leader_lease.endTime = time.time() + self.election_timeout
+		self.leader_lease = threading.Timer(self.leader_lease_timeout, lambda: None)
+		self.leader_lease.endTime = time.time() + self.leader_lease_timeout
 		self.leader_lease.start()
   
 	def get_lease_duration(self):
@@ -94,8 +94,8 @@ class RaftNode:
 		self.start_heartbeat_timer()
 
 	def start_election(self):
-		# if self.get_lease_duration() > 0:
-		# 	return
+		if self.get_lease_duration() > 0:
+			return
 		self.vote_count = 0
 		if self.node_type == NodeType.LEADER:
 			self.start_election_timer()
@@ -104,17 +104,20 @@ class RaftNode:
 		self.node_type = NodeType.CANDIDATE
 		self.vote_count += 1
 		self.last_voted_term = self.current_term
+		arr =[ ]
 		for peer in self.network:
 			# send request vote to all peers
-			self.send_request_vote(peer)
+			leaseDuration = self.send_request_vote(peer)
+			arr.append(leaseDuration)
 			print("request vote sent to " + str(peer))
 		# now restart the election timer
 		# vote for self
+		print(arr)
 		if self.vote_count > (len(self.network)+1)/2:
 			self.node_type = NodeType.LEADER
 			self.start_heartbeat_timer()
 			self.send_heartbeat()
-			# self.start_leader_lease_timer()
+			self.start_leader_lease_timer()
 		self.start_election_timer()
 
 	def send_request_vote(self, peer:tuple):
@@ -129,12 +132,13 @@ class RaftNode:
 			response = stub.RequestVote(request)
 		except grpc.RpcError as e:
 			return
-		if (response.voteGranted):
-		# if (response.voteGranted) and response.leaseDuration == 0:
+		# if (response.voteGranted):
+		if (response.voteGranted) and response.leaseDuration <= 0:
 			self.vote_count += 1
 		if response.term > self.current_term:
 			self.current_term = response.term
 		print(response)
+		return response.leaseDuration
 
 	def RequestVote(self,request, context):
 		print("RequestVote called")
