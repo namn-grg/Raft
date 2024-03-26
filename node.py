@@ -23,7 +23,7 @@ class RaftNode:
 		self.network = {} # dict of conn with peers in same cluster
 		self.node_type = node_type
 		# election
-		self.election_timeout = 7 # randomize this (5-10 seconds)
+		self.election_timeout = 2 # randomize this (5-10 seconds)
 		self.election_timer = None
 		self.current_term = 0
 		self.last_voted_term = None
@@ -53,8 +53,8 @@ class RaftNode:
 		if self.leader_lease:
 			self.leader_lease.cancel()
 
-		self.leader_lease = threading.Timer(self.election_timeout, lambda: None)
-		self.leader_lease.endTime = time.time() + self.election_timeout
+		self.leader_lease = threading.Timer(self.leader_lease_timeout, lambda: None)
+		self.leader_lease.endTime = time.time() + self.leader_lease_timeout
 		self.leader_lease.start()
   
 	def get_lease_duration(self):

@@ -53,8 +53,8 @@ class RaftNode:
 		if self.leader_lease:
 			self.leader_lease.cancel()
 
-		self.leader_lease = threading.Timer(self.election_timeout, lambda: None)
-		self.leader_lease.endTime = time.time() + self.election_timeout
+		self.leader_lease = threading.Timer(self.leader_lease_timeout, lambda: None)
+		self.leader_lease.endTime = time.time() + self.leader_lease_timeout
 		self.leader_lease.start()
   
 	def get_lease_duration(self):
