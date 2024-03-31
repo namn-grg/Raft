@@ -74,6 +74,10 @@ def main():
     userInputIP = input("Enter the node IP for all nodes space seperated: ")
 	# nodeIP for current node will be at userInputIP.split()[userInput-1]
     node_addresses = userInputIP.split()
+    
+    for i, ip in enumerate(node_addresses):
+        ip = ip + ":5005" + str(int(i+1))
+        node_addresses[i] = ip
 	
     # node_addresses = ['10.190.0.2:50051', '10.190.0.3:50052', '10.190.0.4:50053', '10.190.0.5:50054', '10.190.0.6:50055']  # Example addresses
     client = RaftClient(node_addresses)
