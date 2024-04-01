@@ -8,6 +8,9 @@ It is possible to rely on a time-based “lease” for Raft leadership that gets
 
 ## Demo
 
+https://github.com/namn-grg/Raft/assets/97289118/10aa7a71-84f9-4054-b32d-85f740cc2299
+
+
 
 ## Test scenario
 
